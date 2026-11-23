@@ -67,7 +67,18 @@
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const base = (window.GB_BACKEND || location.origin).replace(/\/$/, "");
+  // ?server=https://xxxx.trycloudflare.com points the page at a temporary tunnel to someone's PC.
+  // Only known tunnel hosts are accepted, so a crafted link cannot send the access code elsewhere.
+  function chosenServer() {
+    try {
+      const u = new URL(new URLSearchParams(location.search).get("server") || "");
+      const host = u.hostname;
+      const ok = (u.protocol === "https:" && (/\.trycloudflare\.com$/.test(host) || /\.lhr\.life$/.test(host) || /\.localhost\.run$/.test(host)))
+        || (u.protocol === "http:" && (host === "localhost" || host === "127.0.0.1"));
+      return ok ? u.origin : "";
+    } catch (e) { return ""; }
+  }
+  const base = (chosenServer() || window.GB_BACKEND || location.origin).replace(/\/$/, "");
   const wsBase = base.replace(/^http/, "ws");
   let ws = null, waiting = false, recognition = null;
   const store = { get: k => { try { return localStorage.getItem(k) } catch (e) { return null } },
