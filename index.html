@@ -3,70 +3,46 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GP Intake Call Simulator</title>
+<title>GP Call Simulator</title>
 <style>
-  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b2430; --muted:#5b6675; --line:#d9dee5; --accent:#0b6b5d; --bot:#e8f3f1; --you:#eef0f8; --warn:#8a5a00; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#12161b; --card:#1b2129; --ink:#e8edf2; --muted:#9aa6b4; --line:#2e3742; --accent:#4cc2ae; --bot:#183632; --you:#232a3d; --warn:#e0b050; } }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif; }
-  main { max-width:640px; margin:0 auto; padding:16px; }
-  h1 { font-size:1.25rem; margin:8px 0 4px; }
-  p.sub { color:var(--muted); margin:0 0 12px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:12px; }
-  label { display:block; font-size:.85rem; color:var(--muted); margin-bottom:4px; }
-  input[type=text], input[type=password] { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); font:inherit; }
-  button { padding:10px 14px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
-  button.secondary { background:transparent; color:var(--accent); }
-  button:disabled { opacity:.5; cursor:not-allowed; }
-  .row { display:flex; gap:8px; align-items:end; flex-wrap:wrap; }
-  .row > .grow { flex:1 1 200px; }
-  #log { min-height:240px; max-height:50vh; overflow:auto; display:flex; flex-direction:column; gap:8px; }
-  .msg { padding:8px 12px; border-radius:12px; max-width:88%; white-space:pre-wrap; }
-  .bot { background:var(--bot); align-self:flex-start; }
-  .you { background:var(--you); align-self:flex-end; }
-  .note { color:var(--muted); font-size:.9rem; text-align:center; align-self:center; }
-  #status { color:var(--warn); min-height:1.4em; margin:4px 0; }
-  .opts { display:flex; gap:16px; flex-wrap:wrap; font-size:.9rem; color:var(--muted); margin-top:8px; }
-  .opts label { display:inline; margin:0; }
-  .sr { position:absolute; left:-9999px; }
-  button:focus-visible, input:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 16px; background: #fff; color: #111; }
+  @media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } input, button { background: #222; color: #eee; } }
+  input, button { font: inherit; padding: 8px; border: 1px solid #888; border-radius: 4px; }
+  button { cursor: pointer; }
+  button:disabled { opacity: .4; cursor: default; }
+  #log { border: 1px solid #888; border-radius: 4px; padding: 8px; height: 50vh; overflow-y: auto; margin: 12px 0; }
+  #log p { margin: 6px 0; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .grow { flex: 1; min-width: 0; }
+  #status { color: #b36b00; min-height: 1.3em; }
+  #speakBtn.on { background: #c00; color: #fff; }
 </style>
 </head>
 <body>
-<main>
-  <h1>GP Intake Call Simulator</h1>
-  <p class="sub">A practice phone line with fake patients only. Do not give real personal or medical details.</p>
+  <h1>GP Call Simulator</h1>
+  <p>Practice phone line. Fake details only.</p>
 
-  <section class="card" id="join">
-    <div class="row">
-      <div class="grow">
-        <label for="code">Access code</label>
-        <input id="code" type="password" autocomplete="off">
-      </div>
-      <button id="call">Take a call</button>
-    </div>
-    <div class="opts">
-      <label><input type="checkbox" id="speak"> Bot speaks replies</label>
-      <label><input type="checkbox" id="mic"> Answer with my voice</label>
-    </div>
-    <p class="sub" style="margin:8px 0 0;font-size:.85rem">To talk to it: allow the microphone when the browser asks, use Chrome or Edge, and speak after the bot finishes. You can always type instead.</p>
-    <div id="status" role="status" aria-live="polite"></div>
-  </section>
+  <div class="row">
+    <input id="code" class="grow" type="password" placeholder="Access code" autocomplete="off" aria-label="Access code">
+    <button id="call">Start call</button>
+    <button id="hang" disabled>Hang up</button>
+  </div>
+  <label><input type="checkbox" id="voice" checked> Bot speaks out loud</label>
+  <div id="status" role="status" aria-live="polite"></div>
 
-  <section class="card">
-    <div id="log" aria-live="polite"></div>
-    <form id="reply" class="row" style="margin-top:8px" autocomplete="off">
-      <div class="grow"><label for="text" class="sr">Your answer</label>
-        <input id="text" type="text" placeholder="Type your answer" disabled></div>
-      <button id="send" disabled>Send</button>
-      <button id="hang" type="button" class="secondary" disabled>Hang up</button>
-    </form>
-  </section>
-</main>
+  <div id="log" aria-live="polite"></div>
+
+  <form id="reply" class="row" autocomplete="off">
+    <input id="text" class="grow" type="text" placeholder="Type your answer" aria-label="Your answer" disabled>
+    <button id="send" disabled>Send</button>
+    <button id="speakBtn" type="button" disabled>Tap to speak</button>
+  </form>
+
 <script src="config.js"></script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
+
   // ?server=https://xxxx.trycloudflare.com points the page at a temporary tunnel to someone's PC.
   // Only known tunnel hosts are accepted, so a crafted link cannot send the access code elsewhere.
   function chosenServer() {
@@ -80,88 +56,100 @@
   }
   const base = (chosenServer() || window.GB_BACKEND || location.origin).replace(/\/$/, "");
   const wsBase = base.replace(/^http/, "ws");
+
   let ws = null, waiting = false, recognition = null;
-  const store = { get: k => { try { return localStorage.getItem(k) } catch (e) { return null } },
-                  set: (k, v) => { try { localStorage.setItem(k, v) } catch (e) {} } };
-  // Talking is the point of the simulator, so voice is on unless the tester turned it off.
-  $("speak").checked = store.get("gb-speak") !== "0";
-  $("mic").checked = store.get("gb-mic") !== "0";
-  $("speak").onchange = e => store.set("gb-speak", e.target.checked ? "1" : "0");
-  $("mic").onchange = e => store.set("gb-mic", e.target.checked ? "1" : "0");
-  if (!window.speechSynthesis) $("speak").disabled = true;
   const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Rec) $("mic").disabled = true;
+  if (!window.speechSynthesis) { $("voice").checked = false; $("voice").disabled = true; }
 
   const status = t => { $("status").textContent = t || ""; };
-  function add(cls, text) {
-    const d = document.createElement("div"); d.className = "msg " + cls; d.textContent = text;
-    $("log").appendChild(d); $("log").scrollTop = $("log").scrollHeight;
+  function add(who, text) {
+    const p = document.createElement("p");
+    if (who) { const b = document.createElement("b"); b.textContent = who + ": "; p.appendChild(b); }
+    p.appendChild(document.createTextNode(text));
+    $("log").appendChild(p); $("log").scrollTop = $("log").scrollHeight;
   }
   function setLive(live) {
     $("call").disabled = live; $("code").disabled = live; $("hang").disabled = !live;
-    $("text").disabled = !live; $("send").disabled = !live;
+    $("text").disabled = !live; $("send").disabled = !live; $("speakBtn").disabled = !live || !Rec;
   }
   function speak(text) {
-    if (!$("speak").checked || !window.speechSynthesis) return;
-    speechSynthesis.cancel();
-    speechSynthesis.speak(new SpeechSynthesisUtterance(text));
-  }
-  function listenWithMic() {
-    if (!$("mic").checked || !Rec) return;
-    recognition = new Rec(); recognition.lang = "en-GB"; recognition.interimResults = false;
-    recognition.onresult = e => { const t = e.results[0][0].transcript; if (t) answer(t); };
-    recognition.onerror = e => {
-      if (e.error === "no-speech") return;   // quiet for a moment: onend below listens again
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") $("mic").checked = false;
-      status("Could not use the microphone. Type your answer instead.");
-    };
-    recognition.onend = () => { if (waiting && $("mic").checked) go(); };   // keep listening until answered
-    const go = () => { try { recognition.start(); } catch (e) {} };
-    // wait until the bot has finished speaking so it does not hear itself
-    if ($("speak").checked && window.speechSynthesis && speechSynthesis.speaking) {
-      const t = setInterval(() => { if (!speechSynthesis.speaking) { clearInterval(t); go(); } }, 200);
-    } else go();
+    if (!$("voice").checked || !window.speechSynthesis) return;
+    const u = new SpeechSynthesisUtterance(text); u.lang = "en-GB";
+    speechSynthesis.speak(u);
   }
   function answer(text) {
     if (!ws || ws.readyState !== 1 || !waiting) return;
-    waiting = false; add("you", text);
+    waiting = false; add("You", text);
     ws.send(JSON.stringify({ type: "say", text }));
     $("text").value = "";
   }
 
+  // Tap to speak: phones (iPhone especially) only allow the microphone after a tap.
+  function stopListening() {
+    $("speakBtn").classList.remove("on"); $("speakBtn").textContent = "Tap to speak";
+    if (recognition) { try { recognition.abort(); } catch (e) {} recognition = null; }
+  }
+  $("speakBtn").onclick = () => {
+    if (recognition) { stopListening(); return; }
+    if (window.speechSynthesis) speechSynthesis.cancel();   // stop the bot so it does not hear itself
+    recognition = new Rec(); recognition.lang = "en-GB"; recognition.interimResults = false;
+    recognition.onresult = e => { const t = e.results[0][0].transcript.trim(); if (t) answer(t); };
+    recognition.onerror = e => { if (e.error !== "no-speech" && e.error !== "aborted") status("Microphone not available. Type instead."); };
+    recognition.onend = stopListening;
+    $("speakBtn").classList.add("on"); $("speakBtn").textContent = "Listening… tap to stop";
+    try { recognition.start(); } catch (e) { stopListening(); }
+  };
+  if (!Rec) $("speakBtn").title = "Voice input needs Chrome, Edge or Safari";
+
+  // Free servers sleep when unused; the first call wakes it (about a minute).
   async function wake() {
-    status("Waking the bot. The first call after a quiet spell can take about a minute…");
+    status("Connecting… if nobody has used it for a while this can take about a minute.");
+    // A sleeping server holds the request while it wakes; a missing one fails at once.
     const stop = Date.now() + 120000;
+    let quickFailures = 0;
     while (Date.now() < stop) {
-      try { const r = await fetch(base + "/health", { cache: "no-store" }); if (r.ok) return true; } catch (e) {}
+      const started = Date.now();
+      try {
+        const r = await fetch(base + "/health", { cache: "no-store" });
+        if (r.ok) return "ok";
+        if (r.status === 404) return "missing";
+      } catch (e) {
+        quickFailures = Date.now() - started < 3000 ? quickFailures + 1 : 0;
+        if (quickFailures >= 4) return "missing";
+      }
       await new Promise(r => setTimeout(r, 3000));
     }
-    return false;
+    return "timeout";
   }
 
   $("call").onclick = async () => {
     const code = $("code").value;
     if (!code) { status("Enter the access code first."); return; }
+    // A tap is needed before phones allow speech; this silent line unlocks it.
+    if ($("voice").checked && window.speechSynthesis) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
     $("call").disabled = true; $("log").textContent = "";
-    if (!(await wake())) { status("The bot did not wake up. Try again in a minute."); $("call").disabled = false; return; }
-    status("Connecting…");
+    const woke = await wake();
+    if (woke !== "ok") {
+      status(woke === "missing" ? "The bot server is not set up yet. Ask the team to start it."
+                                : "The bot did not respond. Try again in a minute.");
+      $("call").disabled = false; return;
+    }
+    status("");
     ws = new WebSocket(wsBase + "/call");
     ws.onopen = () => ws.send(JSON.stringify({ type: "start", code }));
     ws.onmessage = ev => {
       const m = JSON.parse(ev.data);
-      if (m.type === "started") { setLive(true); status(""); add("note", "Call connected."); $("text").focus(); }
-      else if (m.type === "bot") { add("bot", m.text); speak(m.text); }
-      else if (m.type === "listen") { waiting = true; listenWithMic(); }
+      if (m.type === "started") { setLive(true); add("", "Call connected."); }
+      else if (m.type === "bot") { add("Bot", m.text); speak(m.text); }
+      else if (m.type === "listen") { waiting = true; }
       else if (m.type === "end") {
-        const why = { wrong_code: "That access code was not accepted.",
-                      busy: "The line is busy: someone else is on a call. Try again in a few minutes.",
-                      limit: "The daily call limit has been reached. Try again tomorrow." }[m.reason];
-        if (why) status(why); else add("note", "Call ended.");
+        const why = { wrong_code: "Wrong access code.",
+                      busy: "Line busy: someone else is on a call. Try again in a few minutes.",
+                      limit: "Daily call limit reached. Try again tomorrow." }[m.reason];
+        if (why) status(why); else add("", "Call ended.");
       }
     };
-    ws.onclose = () => { setLive(false); waiting = false;
-      if (recognition) { try { recognition.abort(); } catch (e) {} }
-      $("call").disabled = false; };
+    ws.onclose = () => { setLive(false); waiting = false; stopListening(); $("call").disabled = false; };
     ws.onerror = () => status("Could not connect to the bot.");
   };
   $("reply").onsubmit = e => { e.preventDefault(); const t = $("text").value.trim(); if (t) answer(t); };
