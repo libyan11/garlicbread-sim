@@ -15,7 +15,6 @@
   .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
   .grow { flex: 1; min-width: 0; }
   #status { color: #b36b00; min-height: 1.3em; }
-  #speakBtn.on { background: #c00; color: #fff; }
 </style>
 </head>
 <body>
@@ -27,15 +26,14 @@
     <button id="call">Start call</button>
     <button id="hang" disabled>Hang up</button>
   </div>
-  <label><input type="checkbox" id="voice" checked> Bot speaks out loud</label>
+  <label><input type="checkbox" id="voice" checked> Voice call (talk to the bot, it talks back)</label>
   <div id="status" role="status" aria-live="polite"></div>
 
   <div id="log" aria-live="polite"></div>
 
   <form id="reply" class="row" autocomplete="off">
-    <input id="text" class="grow" type="text" placeholder="Type your answer" aria-label="Your answer" disabled>
+    <input id="text" class="grow" type="text" placeholder="Type your answer (when it asks you to type)" aria-label="Your answer" disabled>
     <button id="send" disabled>Send</button>
-    <button id="speakBtn" type="button" disabled>Tap to speak</button>
   </form>
 
 <script src="config.js"></script>
@@ -56,10 +54,11 @@
   }
   const base = (chosenServer() || window.GB_BACKEND || location.origin).replace(/\/$/, "");
   const wsBase = base.replace(/^http/, "ws");
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-  let ws = null, waiting = false, recognition = null;
-  const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!window.speechSynthesis) { $("voice").checked = false; $("voice").disabled = true; }
+  let ws = null, waiting = false;
+  let ctx = null, micStream = null, micOn = false, nextTime = 0, rate = 24000;
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) { $("voice").checked = false; $("voice").disabled = true; }
 
   const status = t => { $("status").textContent = t || ""; };
   function add(who, text) {
@@ -69,42 +68,71 @@
     $("log").appendChild(p); $("log").scrollTop = $("log").scrollHeight;
   }
   function setLive(live) {
-    $("call").disabled = live; $("code").disabled = live; $("hang").disabled = !live;
-    $("text").disabled = !live; $("send").disabled = !live; $("speakBtn").disabled = !live || !Rec;
+    $("call").disabled = live; $("code").disabled = live; $("voice").disabled = live; $("hang").disabled = !live;
+    if (!live) { $("text").disabled = true; $("send").disabled = true; }
   }
-  function speak(text) {
-    if (!$("voice").checked || !window.speechSynthesis) return;
-    const u = new SpeechSynthesisUtterance(text); u.lang = "en-GB";
-    speechSynthesis.speak(u);
+
+  // ---- microphone in (16 kHz, 16-bit mono) and speaker out -----------------------------
+  function toPcm16k(input, inRate) {
+    const ratio = inRate / 16000, n = Math.floor(input.length / ratio), out = new Int16Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = Math.floor(i * ratio), b = Math.max(a + 1, Math.floor((i + 1) * ratio));
+      let sum = 0; for (let j = a; j < b && j < input.length; j++) sum += input[j];
+      const s = Math.max(-1, Math.min(1, sum / (b - a)));
+      out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    return out;
   }
+  async function openAudio() {
+    // Phones only allow audio after a tap, so this runs straight from the Start call tap.
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await ctx.resume();
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    const source = ctx.createMediaStreamSource(micStream);
+    const processor = ctx.createScriptProcessor(4096, 1, 1);
+    const mute = ctx.createGain(); mute.gain.value = 0;
+    source.connect(processor); processor.connect(mute); mute.connect(ctx.destination);
+    processor.onaudioprocess = e => {
+      if (!micOn || !ws || ws.readyState !== 1) return;
+      ws.send(toPcm16k(e.inputBuffer.getChannelData(0), ctx.sampleRate).buffer);
+    };
+  }
+  function closeAudio() {
+    micOn = false;
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    if (ctx) { ctx.close().catch(() => {}); ctx = null; }
+  }
+  function play(buffer) {
+    if (!ctx) return;
+    const n = buffer.byteLength >> 1;
+    if (!n) return;
+    const ints = new Int16Array(buffer, 0, n), floats = new Float32Array(n);
+    for (let i = 0; i < n; i++) floats[i] = ints[i] / 32768;
+    const audioBuffer = ctx.createBuffer(1, n, rate);
+    audioBuffer.copyToChannel(floats, 0);
+    const node = ctx.createBufferSource();
+    node.buffer = audioBuffer; node.connect(ctx.destination);
+    nextTime = Math.max(nextTime, ctx.currentTime + 0.05);
+    node.start(nextTime); nextTime += audioBuffer.duration;
+  }
+  async function startListening() {
+    while (ctx && ctx.currentTime < nextTime) await sleep(80);   // let the bot finish speaking
+    await sleep(250);                                            // and its echo die away
+    if (!ws || ws.readyState !== 1) return;
+    micOn = true; status("Listening… speak now.");
+    ws.send(JSON.stringify({ type: "mic_ready" }));
+  }
+
   function answer(text) {
     if (!ws || ws.readyState !== 1 || !waiting) return;
     waiting = false; add("You", text);
     ws.send(JSON.stringify({ type: "say", text }));
-    $("text").value = "";
+    $("text").value = ""; $("text").disabled = true; $("send").disabled = true;
   }
-
-  // Tap to speak: phones (iPhone especially) only allow the microphone after a tap.
-  function stopListening() {
-    $("speakBtn").classList.remove("on"); $("speakBtn").textContent = "Tap to speak";
-    if (recognition) { try { recognition.abort(); } catch (e) {} recognition = null; }
-  }
-  $("speakBtn").onclick = () => {
-    if (recognition) { stopListening(); return; }
-    if (window.speechSynthesis) speechSynthesis.cancel();   // stop the bot so it does not hear itself
-    recognition = new Rec(); recognition.lang = "en-GB"; recognition.interimResults = false;
-    recognition.onresult = e => { const t = e.results[0][0].transcript.trim(); if (t) answer(t); };
-    recognition.onerror = e => { if (e.error !== "no-speech" && e.error !== "aborted") status("Microphone not available. Type instead."); };
-    recognition.onend = stopListening;
-    $("speakBtn").classList.add("on"); $("speakBtn").textContent = "Listening… tap to stop";
-    try { recognition.start(); } catch (e) { stopListening(); }
-  };
-  if (!Rec) $("speakBtn").title = "Voice input needs Chrome, Edge or Safari";
 
   // Free servers sleep when unused; the first call wakes it (about a minute).
   async function wake() {
     status("Connecting… if nobody has used it for a while this can take about a minute.");
-    // A sleeping server holds the request while it wakes; a missing one fails at once.
     const stop = Date.now() + 120000;
     let quickFailures = 0;
     while (Date.now() < stop) {
@@ -117,7 +145,7 @@
         quickFailures = Date.now() - started < 3000 ? quickFailures + 1 : 0;
         if (quickFailures >= 4) return "missing";
       }
-      await new Promise(r => setTimeout(r, 3000));
+      await sleep(3000);
     }
     return "timeout";
   }
@@ -125,35 +153,49 @@
   $("call").onclick = async () => {
     const code = $("code").value;
     if (!code) { status("Enter the access code first."); return; }
-    // A tap is needed before phones allow speech; this silent line unlocks it.
-    if ($("voice").checked && window.speechSynthesis) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+    const wantVoice = $("voice").checked;
     $("call").disabled = true; $("log").textContent = "";
+    if (wantVoice) {
+      try { await openAudio(); }
+      catch (e) { closeAudio(); status("Microphone not available. Allow it in the browser, or untick Voice call to type."); $("call").disabled = false; return; }
+    }
     const woke = await wake();
     if (woke !== "ok") {
+      closeAudio();
       status(woke === "missing" ? "The bot server is not set up yet. Ask the team to start it."
                                 : "The bot did not respond. Try again in a minute.");
       $("call").disabled = false; return;
     }
     status("");
+    nextTime = 0;
     ws = new WebSocket(wsBase + "/call");
-    ws.onopen = () => ws.send(JSON.stringify({ type: "start", code }));
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => ws.send(JSON.stringify({ type: "start", code, voice: wantVoice }));
     ws.onmessage = ev => {
+      if (typeof ev.data !== "string") { play(ev.data); return; }
       const m = JSON.parse(ev.data);
-      if (m.type === "started") { setLive(true); add("", "Call connected."); }
-      else if (m.type === "bot") { add("Bot", m.text); speak(m.text); }
-      else if (m.type === "listen") { waiting = true; }
+      if (m.type === "started") { setLive(true); add("", wantVoice ? "Call connected. Wait for the bot, then speak." : "Call connected."); }
+      else if (m.type === "bot") { add("Bot", m.text); }
+      else if (m.type === "audio") { rate = m.rate; }
+      else if (m.type === "listen") {
+        if (m.voice) { startListening(); }
+        else { waiting = true; status("Type your answer."); $("text").disabled = false; $("send").disabled = false; $("text").focus(); }
+      }
+      else if (m.type === "heard") { micOn = false; status(""); add("You", m.text || "(nothing heard)"); }
+      else if (m.type === "notice") { status(m.text); }
       else if (m.type === "end") {
         const why = { wrong_code: "Wrong access code.",
                       busy: "Line busy: someone else is on a call. Try again in a few minutes.",
-                      limit: "Daily call limit reached. Try again tomorrow." }[m.reason];
+                      limit: "Daily call limit reached. Try again tomorrow.",
+                      voice_unavailable: "Voice is not set up on the server. Untick Voice call to type instead." }[m.reason];
         if (why) status(why); else add("", "Call ended.");
       }
     };
-    ws.onclose = () => { setLive(false); waiting = false; stopListening(); $("call").disabled = false; };
+    ws.onclose = () => { setLive(false); waiting = false; closeAudio(); $("call").disabled = false; };
     ws.onerror = () => status("Could not connect to the bot.");
   };
   $("reply").onsubmit = e => { e.preventDefault(); const t = $("text").value.trim(); if (t) answer(t); };
-  $("hang").onclick = () => { if (ws) ws.close(); if (window.speechSynthesis) speechSynthesis.cancel(); };
+  $("hang").onclick = () => { if (ws) ws.close(); };
 })();
 </script>
 </body>
