@@ -109,7 +109,7 @@
     const ints = new Int16Array(buffer, 0, n), floats = new Float32Array(n);
     for (let i = 0; i < n; i++) floats[i] = ints[i] / 32768;
     const audioBuffer = ctx.createBuffer(1, n, rate);
-    audioBuffer.copyToChannel(floats, 0);
+    audioBuffer.getChannelData(0).set(floats);   // works on older iPhones too
     const node = ctx.createBufferSource();
     node.buffer = audioBuffer; node.connect(ctx.destination);
     nextTime = Math.max(nextTime, ctx.currentTime + 0.05);
@@ -168,13 +168,30 @@
     }
     status("");
     nextTime = 0;
+    connect(code, wantVoice, 1);
+  };
+
+  // Phones and freshly restarted servers sometimes drop the first connection: try up to 3 times.
+  function connect(code, wantVoice, attempt) {
+    let started = false;
     ws = new WebSocket(wsBase + "/call");
     ws.binaryType = "arraybuffer";
     ws.onopen = () => ws.send(JSON.stringify({ type: "start", code, voice: wantVoice }));
+    ws.onclose = ev => {
+      if (!started && attempt < 3) {
+        status("Connecting… (try " + (attempt + 1) + " of 3)");
+        setTimeout(() => connect(code, wantVoice, attempt + 1), 2000);
+        return;
+      }
+      if (!started) status("Could not connect to the bot (code " + ev.code + "). Check your internet, reload the page and try again.");
+      else if (/Type your answer|Listening/.test($("status").textContent)) status("");
+      setLive(false); waiting = false; closeAudio(); $("call").disabled = false;
+    };
+    ws.onerror = () => console.warn("Bot connection error, attempt " + attempt);
     ws.onmessage = ev => {
       if (typeof ev.data !== "string") { play(ev.data); return; }
       const m = JSON.parse(ev.data);
-      if (m.type === "started") { setLive(true); add("", wantVoice ? "Call connected. Wait for the bot, then speak." : "Call connected."); }
+      if (m.type === "started") { started = true; setLive(true); add("", wantVoice ? "Call connected. Wait for the bot, then speak." : "Call connected."); }
       else if (m.type === "bot") { add("Bot", m.text); }
       else if (m.type === "audio") { rate = m.rate; }
       else if (m.type === "listen") {
@@ -188,12 +205,10 @@
                       busy: "Line busy: someone else is on a call. Try again in a few minutes.",
                       limit: "Daily call limit reached. Try again tomorrow.",
                       voice_unavailable: "Voice is not set up on the server. Untick Voice call to type instead." }[m.reason];
-        if (why) status(why); else add("", "Call ended.");
+        if (why) { started = true; status(why); } else add("", "Call ended.");
       }
     };
-    ws.onclose = () => { setLive(false); waiting = false; closeAudio(); $("call").disabled = false; };
-    ws.onerror = () => status("Could not connect to the bot.");
-  };
+  }
   $("reply").onsubmit = e => { e.preventDefault(); const t = $("text").value.trim(); if (t) answer(t); };
   $("hang").onclick = () => { if (ws) ws.close(); };
 })();
